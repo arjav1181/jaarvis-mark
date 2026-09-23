@@ -13,8 +13,11 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 cp "$ROOT/space/server.py" "$ROOT/space/requirements.txt" "$ROOT/space/README.md" "$WORK/"
-cp -r "$ROOT/space/static" "$ROOT/core" "$WORK/"
+cp -r "$ROOT/space/static" "$ROOT/core" "$ROOT/actions" "$ROOT/plugins" "$WORK/"
 mkdir -p "$WORK/memory"  # server-side store boots empty; memory shape identical
+# memory engine code ships; the store itself never leaves the machine that made it
+cp "$ROOT/memory/__init__.py" "$ROOT/memory/memory_manager.py" \
+   "$ROOT/memory/config_manager.py" "$WORK/memory/"
 cat > "$WORK/Dockerfile" <<'EOF'
 FROM python:3.11-slim
 WORKDIR /app
