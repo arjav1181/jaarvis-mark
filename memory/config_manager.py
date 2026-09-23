@@ -52,8 +52,8 @@ def is_configured() -> bool:
 
 
 def get_assistant_name() -> str:
-    """Return the configured assistant name, or 'JARVIS' if not set."""
-    return load_api_keys().get("assistant_name", "JARVIS") or "JARVIS"
+    """Return the configured assistant name, or 'JAARVIS' if not set."""
+    return load_api_keys().get("assistant_name", "JAARVIS") or "JAARVIS"
 
 
 def get_user_name() -> str:
@@ -70,8 +70,40 @@ def save_assistant_config(assistant_name: str, user_name: str) -> None:
             data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         except Exception:
             data = {}
-    data["assistant_name"] = assistant_name.strip() or "JARVIS"
+    data["assistant_name"] = assistant_name.strip() or "JAARVIS"
     data["user_name"] = user_name.strip()
+    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+
+
+# ── Jaarvis persona trio ───────────────────────────────────────────────────
+# Which soul is speaking (jarvis/friday/ultron). The voice follows the persona
+# unless the user explicitly picked a voice — an explicit choice always wins.
+
+
+def get_persona() -> str:
+    """Return the configured persona key, collapsing anything odd to jarvis."""
+    try:
+        from core.personas import valid_persona
+    except Exception:
+        return "jarvis"
+    return valid_persona(load_api_keys().get("persona", "jarvis"))
+
+
+def save_persona(persona: str) -> None:
+    """Persist the persona key (voice follows it unless explicitly chosen)."""
+    try:
+        from core.personas import valid_persona
+        persona = valid_persona(persona)
+    except Exception:
+        persona = "jarvis"
+    ensure_config_dir()
+    data: dict = {}
+    if CONFIG_FILE.exists():
+        try:
+            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    data["persona"] = persona
     CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
 
 
@@ -83,10 +115,16 @@ DEFAULT_VOICE    = "Charon"
 
 
 def get_voice() -> str:
-    """Return the configured Live voice, falling back to the default if unset
-    or if the stored value is not a voice we recognise."""
-    v = load_api_keys().get("voice_name", DEFAULT_VOICE) or DEFAULT_VOICE
-    return v if v in AVAILABLE_VOICES else DEFAULT_VOICE
+    """Return the configured Live voice. An explicit user choice always wins;
+    otherwise the voice follows the active persona (Charon/Aoede/Fenrir)."""
+    v = load_api_keys().get("voice_name", "") or ""
+    if v in AVAILABLE_VOICES:
+        return v
+    try:
+        from core.personas import PERSONAS
+        return PERSONAS[get_persona()]["voice"]
+    except Exception:
+        return DEFAULT_VOICE
 
 
 def save_voice(voice_name: str) -> None:

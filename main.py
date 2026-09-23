@@ -530,7 +530,7 @@ def _keep_context_of(exc: BaseException) -> bool:
 class JarvisLive:
     def __init__(self, ui: JarvisUI):
         self.ui             = ui
-        self._asst_name     = "JARVI    S"   # updated each session from config
+        self._asst_name     = "JAARVIS"   # updated each session from config
         self.session              = None
         self.audio_in_queue       = None
         self.out_queue            = None
@@ -955,10 +955,10 @@ class JarvisLive:
         # Load customization from config
         try:
             _cfg = json.loads(open(API_CONFIG_PATH, encoding="utf-8").read())
-            self._asst_name = (_cfg.get("assistant_name") or "JARVIS").strip()
+            self._asst_name = (_cfg.get("assistant_name") or "JAARVIS").strip()
             _user_name = (_cfg.get("user_name") or "").strip()
         except Exception:
-            self._asst_name = "JARVIS"
+            self._asst_name = "JAARVIS"
             _user_name = ""
 
         memory     = load_memory()
@@ -1013,6 +1013,15 @@ class JarvisLive:
         })
 
         parts = [time_ctx, identity_ctx]
+        # Jaarvis persona trio — tone overlay for the active soul. Policy is
+        # untouched: safety gates bind all three identically.
+        try:
+            from core.personas import PERSONAS
+            from memory.config_manager import get_persona
+            _persona = PERSONAS.get(get_persona(), PERSONAS["jarvis"])
+            parts.append(_persona["brief"] + "\n")
+        except Exception:
+            pass
         if mem_str:
             parts.append(mem_str)
         parts.append(sys_prompt)
