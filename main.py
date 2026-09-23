@@ -72,6 +72,8 @@ from memory.config_manager     import (
     get_brief_enabled, get_media_resolution, get_proactive_audio_enabled,
     get_push_to_talk_enabled, get_thinking_enabled, get_turn_tuning, get_voice,
     get_wake_word_enabled, save_wake_word_enabled,    get_input_device, get_output_device,
+    get_telegram_token, get_telegram_chat_id, get_telegram_pair_code,
+    save_telegram,
 )
 from core.plugin_loader        import discover_plugins
 from core                      import undo as undo_stack
@@ -593,6 +595,7 @@ class JarvisLive:
         self._resume_handle: str | None = None
         self._turn_done_event: asyncio.Event | None = None
         self._dashboard     = None
+        self._telegram      = None
         self._briefing_sent    = False          # morning briefing fires once per process
         self._sys_monitor      = SystemMonitor()  # persistent cooldown state
         self._proactive        = ProactiveEngine()
@@ -1568,6 +1571,11 @@ class JarvisLive:
                                         "text": full_out,
                                         "ts": datetime.now().isoformat(),
                                     }))
+                                if self._telegram:
+                                    try:
+                                        self._telegram.send(full_out)
+                                    except Exception:
+                                        pass
                             out_buf = []
 
                             if self._vision_close_pending:
@@ -2086,6 +2094,30 @@ class JarvisLive:
         except Exception as e:
             print(f"[Dashboard] Disabled: {e}")
             self._dashboard = None
+
+        # Telegram remote (optional — needs a bot token in settings). Same
+        # command path as typed text; replies go back to the paired chat.
+        try:
+            from core.telegram_remote import TelegramRemote
+            _tg_token = get_telegram_token()
+            if _tg_token:
+                self._telegram = TelegramRemote(on_text=self._on_text_command)
+                self._telegram.configure(
+                    token=_tg_token, chat_id=get_telegram_chat_id(),
+                    pair_code=get_telegram_pair_code())
+
+                def _persist_pair(cid, _save=save_telegram):
+                    _save(chat_id=cid, pair_code="")
+
+                self._telegram._on_paired = _persist_pair
+                if self._telegram.start():
+                    print("[Telegram] Remote polling.")
+                else:
+                    print("[Telegram] Token invalid or unreachable — remote off.")
+                    self._telegram = None
+        except Exception as e:
+            print(f"[Telegram] Disabled: {e}")
+            self._telegram = None
 
         while True:
             try:

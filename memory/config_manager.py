@@ -75,7 +75,39 @@ def save_assistant_config(assistant_name: str, user_name: str) -> None:
     CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
 
 
+# ── Telegram remote ──────────────────────────────────────────────────────
+# Bot token + paired chat id + one-time pairing code. All git-ignored.
+
 # ── Jaarvis persona trio ───────────────────────────────────────────────────
+
+
+def get_telegram_token() -> str:
+    return load_api_keys().get("telegram_bot_token", "") or ""
+
+
+def get_telegram_chat_id() -> str:
+    return str(load_api_keys().get("telegram_chat_id", "") or "")
+
+
+def get_telegram_pair_code() -> str:
+    return load_api_keys().get("telegram_pair_code", "") or ""
+
+
+def save_telegram(*, token=None, chat_id=None, pair_code=None) -> None:
+    ensure_config_dir()
+    data: dict = {}
+    if CONFIG_FILE.exists():
+        try:
+            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    if token is not None:
+        data["telegram_bot_token"] = token.strip()
+    if chat_id is not None:
+        data["telegram_chat_id"] = str(chat_id).strip()
+    if pair_code is not None:
+        data["telegram_pair_code"] = pair_code.strip()
+    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
 # Which soul is speaking (jarvis/friday/ultron). The voice follows the persona
 # unless the user explicitly picked a voice — an explicit choice always wins.
 
