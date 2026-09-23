@@ -146,11 +146,19 @@
     }
     // ── Bridge socket (Space voice bridge protocol) ──
     var ws = null, curBubble = null, curText = "";
+    function backend() {
+      // ?backend=wss://your-server — static Space (free) + brain anywhere.
+      try {
+        var m = /[?&]backend=([^&]*)/.exec(location.search);
+        if (m) return decodeURIComponent(m[1]).replace(/\/$/, "");
+      } catch (e) {}
+      var proto = location.protocol === "https:" ? "wss:" : "ws:";
+      return proto + "//" + location.host;
+    }
     function connect() {
       if (ws) { try { ws.close(); } catch (e) {} }
       setConn(false);
-      var proto = location.protocol === "https:" ? "wss:" : "ws:";
-      ws = new WebSocket(proto + "//" + location.host + "/ws/voice");
+      ws = new WebSocket(backend() + "/ws/voice");
       ws.onopen = function () {
         ws.send(JSON.stringify({ soul: soul }));
         setConn(true);
