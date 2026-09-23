@@ -69,7 +69,11 @@
       background: var(--surface); border: 1px solid var(--border); color: var(--muted);
       padding: 11px 13px; font-size: 16px; line-height: 1; border-radius: 12px; cursor: pointer;
     }
-    #mic-btn:active { transform: scale(0.96); }
+    #img-btn {
+      background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+      padding: 11px 13px; font-size: 16px; line-height: 1; border-radius: 12px; cursor: pointer;
+    }
+    #img-btn:active, #mic-btn:active { transform: scale(0.96); }
     #mic-btn.recording {
       background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.45); color: #ef4444;
       animation: mic-pulse 1s ease-in-out infinite;
@@ -100,6 +104,8 @@
   <main id="feed"></main>
   <footer>
     <input id="inp" placeholder="Send a command to JAARVIS…" autocomplete="off">
+    <input type="file" id="img-inp" accept="image/*" style="display:none">
+    <button id="img-btn" title="Show him what you see">👁</button>
     <button id="mic-btn" title="Voice — tap to speak">🎤</button>
     <button class="btn btn-send" id="send">SEND</button>
   </footer>
@@ -230,6 +236,9 @@
       micNode = new AudioWorkletNode(micCtx, "j");
       var pbuf = [], plen = 0;
       micNode.port.onmessage = function (e) {
+        // Echo guard: never stream the mic while our own voice is playing.
+        // (Desktop does this spectrally; here client-side timing is exact.)
+        if (playing) return;
         var chunk = new Int16Array(f32toPcm16(e.data, rate));
         pbuf.push(chunk); plen += chunk.length;
         if (plen >= 1024) {
@@ -266,6 +275,27 @@
     }
     document.getElementById("send").addEventListener("click", doSend);
     inp.addEventListener("keydown", function (e) { if (e.key === "Enter") doSend(); });
+    // Server vision: show him a photo/screenshot, he sees it same-turn.
+    var imgInp = document.getElementById("img-inp");
+    document.getElementById("img-btn").addEventListener("click", function () { imgInp.click(); });
+    imgInp.addEventListener("change", function () {
+      var f = imgInp.files && imgInp.files[0];
+      if (!f || !ws || ws.readyState !== 1) return;
+      var rd = new FileReader();
+      rd.onload = function () {
+        var dataUrl = String(rd.result || "");
+        var parts = dataUrl.split(",");
+        if (parts.length !== 2) return;
+        bubble("u", "📷 showing him this" + (inp.value.trim() ? ": " + inp.value.trim() : "…"));
+        ws.send(JSON.stringify({ type: "image",
+          mime: f.type || "image/jpeg",
+          data: parts[1].slice(0, 8000000),
+          text: inp.value.trim() || "Describe what you see, briefly." }));
+        inp.value = "";
+      };
+      rd.readAsDataURL(f);
+      imgInp.value = "";
+    });
     document.getElementById("soulsel").addEventListener("change", function (e) {
       if (talking) stopMic(false);
       soul = e.target.value;

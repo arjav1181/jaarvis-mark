@@ -29,6 +29,7 @@ from core import brain
 from core.action_loader import discover_actions
 from core.plugin_loader import discover_plugins
 from core.personas import valid_persona
+from core import briefing as briefing_core
 from memory import memory_manager
 from memory.memory_manager import (
     load_memory, update_memory, search_memory, format_memory_for_prompt,
@@ -143,6 +144,26 @@ async def index():
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")),
           name="static")
 
+BRIEF_MIN = int(os.environ.get("JAARVIS_BRIEF_MIN", "360") or 360)
+
+
+async def _briefing_loop():
+    """Server proactive engine: word a briefing on schedule, hold as pending,
+    deliver on next connect ('while you were away...')."""
+    import asyncio as _aio
+    while True:
+        try:
+            await _aio.sleep(BRIEF_MIN * 60)
+            briefing_core.scheduled_check(
+                load_memory(), os.environ.get("GEMINI_API_KEY", ""))
+        except Exception:
+            pass
+
+
+@app.on_event("startup")
+async def _start_briefings():
+    asyncio.create_task(_briefing_loop())
+
 
 def _client():
     from google import genai
@@ -169,6 +190,13 @@ async def voice(ws: WebSocket):
         await ws.close(code=4401)
         return
     instruction, decls = _build_instruction(persona)
+    pending = briefing_core.take_pending()
+    if pending:
+        # "While you were away..." — the first thing said on connect.
+        lead = ("While you were away: " +
+                " ".join(p.get("text", "") for p in pending)[-1500:])
+        instruction += ("\n[PENDING BRIEFING — speak this first, briefly: "
+                        + lead + "]")
 
     async def pump_in(session, queue):
         while True:
@@ -183,6 +211,26 @@ async def voice(ws: WebSocket):
                         turns={"role": "user",
                                "parts": [{"text": d["text"]}]},
                         turn_complete=True)
+                elif d.get("type") == "image" and d.get("data"):
+                    # Server vision: a frame from the user's world (screenshot,
+                    # photo, camera). Same contract as screen_process — one
+                    # labelled frame, answered in the same turn.
+                    import base64
+                    try:
+                        raw = base64.b64decode(d["data"][:8_000_000])
+                    except Exception:
+                        raw = b""
+                    if raw:
+                        mime = str(d.get("mime", "image/jpeg"))[:64]
+                        await session.send_client_content(
+                            turns={"role": "user", "parts": [
+                                {"text": ("[USER-PROVIDED IMAGE — a photo from "
+                                          "the user's world, not your face.] "
+                                          + (d.get("text") or
+                                             "Describe what you see, briefly."))},
+                                {"inline_data": {"mime_type": mime,
+                                                 "data": raw}}]},
+                            turn_complete=True)
                 elif d.get("type") == "end":
                     return
             elif msg.get("bytes") is not None:
