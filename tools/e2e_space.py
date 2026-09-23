@@ -106,44 +106,7 @@ def main():
             heard += f" [exc {type(e).__name__}]"
         check("brain answered on feed", len(heard) > 10, heard[:80])
 
-        # Vision: upload an image, he describes it.
-        from PIL import Image, ImageDraw
-        im = Image.new("RGB", (200, 120), (10, 20, 40))
-        d = ImageDraw.Draw(im)
-        d.rectangle([60, 20, 140, 100], outline=(80, 255, 170), width=5)
-        buf = io.BytesIO()
-        im.save(buf, format="PNG")
-        boundary = "E2EBOUND"
-        payload = (f"--{boundary}\r\nContent-Disposition: form-data; "
-                   f'name="file"; filename="e2e.png"\r\nContent-Type: image/png\r\n\r\n').encode() \
-            + buf.getvalue() + f"\r\n--{boundary}--\r\n".encode()
-        conn = http_client_mod.HTTPConnection("127.0.0.1", PORT, timeout=30)
-        conn.request("POST", "/api/upload", payload,
-                     {"Content-Type": f"multipart/form-data; boundary={boundary}",
-                      "Authorization": f"Bearer {tok}"})
-        resp = conn.getresponse()
-        check("image upload accepted", resp.status == 200)
-        # Drain any tail of the previous turn before waiting on vision.
-        ws.settimeout(3)
-        try:
-            while True:
-                ws.recv()
-        except Exception:
-            pass
-        ws.settimeout(300)
-        seen = ""
-        try:
-            t0 = time.time()
-            while time.time() - t0 < 390:
-                m = json.loads(ws.recv())
-                if m.get("type") == "log" and m.get("speaker") == "jarvis":
-                    seen += m.get("text", "")
-                    if len(seen) > 30:
-                        break
-        except Exception:
-            pass
-        check("vision answered (green rectangle, dark)",
-              "green" in seen.lower() or "rectangle" in seen.lower(), seen[:100])
+        # Vision lives in e2e_vision.py (own process lifetime).
 
         # Phone-audio socket: protocol-level (PCM in, stays open, session alive).
         wv = websocket.create_connection(
