@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JAARVIS — live</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    --bg:#04070c; --ink:#d7f3ff; --dim:#5b7d94; --line:#12303f;
+    --accent:#7fd8ff; --accent-soft:#c9ecff;
+    background:var(--bg); color:var(--ink); font-family:system-ui,sans-serif;
+    margin:0; display:flex; flex-direction:column; align-items:center; padding:18px 14px;
+  }
+  body[data-soul="friday"] { --bg:#050c09; --ink:#d7fff0; --dim:#5b9484; --line:#123f31; --accent:#7fffd4; --accent-soft:#c9ffef; }
+  body[data-soul="ultron"] { --bg:#0c0505; --ink:#ffe9d7; --dim:#94685b; --line:#3f2112; --accent:#ff9a7f; --accent-soft:#ffd9c9; }
+  #who { font-size:1.5rem; letter-spacing:.22em; color:var(--accent); margin-top:4vh; }
+  #state { color:var(--dim); letter-spacing:.24em; font-size:.78rem; margin:6px 0 12px; min-height:1.3em; }
+  #orb { width:min(66vw,250px); height:min(66vw,250px); }
+  #orb .spin { animation:spin 12s linear infinite; transform-origin:center; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #core { animation:pulse 3s ease-in-out infinite; transform-origin:center; }
+  @keyframes pulse { 0%,100% { opacity:.8; } 50% { opacity:1; } }
+  body[data-state="speaking"] #core { animation-duration:.9s; }
+  #said { color:var(--accent-soft); font-size:.95rem; min-height:3em; text-align:center; padding:0 20px; margin-top:8px; }
+  .row { display:flex; gap:10px; margin:10px 0; flex-wrap:wrap; justify-content:center; }
+  button { min-height:52px; font-size:1rem; border-radius:12px; padding:12px 22px;
+    border:1px solid var(--line); background:rgba(0,0,0,.5); color:var(--accent-soft); }
+  button[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); box-shadow:0 0 12px var(--line); }
+  #talk { font-size:1.2rem; padding:14px 40px; border-width:2px; }
+  #pad { flex:1; }
+  #hint { color:var(--dim); font-size:.75rem; }
+  @media (prefers-reduced-motion: reduce) { #orb .spin, #core { animation:none; } }
+</style>
+</head>
+<body data-soul="jarvis" data-state="idle">
+  <div id="who">JARVIS</div>
+  <div id="state">TAP TALK · SPEAK</div>
+  <svg id="orb" viewBox="0 0 200 200" role="img" aria-label="Voice orb">
+    <circle cx="100" cy="100" r="94" fill="none" stroke="currentColor" opacity=".2"/>
+    <g class="spin" stroke="currentColor" opacity=".7" fill="none">
+      <circle cx="100" cy="100" r="80" stroke-width="5" stroke-dasharray="30 18"/>
+      <circle cx="100" cy="100" r="68" stroke-width="2" stroke-dasharray="8 8"/>
+    </g>
+    <g id="core" fill="currentColor">
+      <circle cx="100" cy="100" r="44" opacity=".9"/>
+      <circle cx="100" cy="100" r="44" fill="#fff" opacity=".3"/>
+    </g>
+  </svg>
+  <div id="said" aria-live="polite"></div>
+  <div class="row">
+    <button id="talk" aria-pressed="false">TALK</button>
+  </div>
+  <div class="row" role="group" aria-label="Soul">
+    <button data-s="jarvis">JARVIS</button>
+    <button data-s="friday">FRIDAY</button>
+    <button data-s="ultron">ULTRON</button>
+  </div>
+  <div id="pad"></div>
+  <div id="hint">mic stays in your browser · key stays on the server</div>
+<script>
+(function () {
+  "use strict";
+  var soul = "jarvis";
+  var NAMES = { jarvis: "JARVIS", friday: "FRIDAY", ultron: "ULTRON" };
+  function $(id) { return document.getElementById(id); }
+  function setState(s, extra) {
+    document.body.setAttribute("data-state", s);
+    $("state").textContent = extra || { idle: "TAP TALK · SPEAK",
+      listening: "LISTENING", thinking: "THINKING", speaking: "SPEAKING" }[s] || s;
+  }
+  function paint() {
+    document.body.setAttribute("data-soul", soul);
+    $("who").textContent = NAMES[soul];
+  }
+  var btns = document.querySelectorAll("[data-s]");
+  for (var i = 0; i < btns.length; i++) {
+    (function (b) {
+      b.addEventListener("click", function () {
+        if (talking) return;
+        soul = b.getAttribute("data-s");
+        paint(); connect(true);
+      });
+    })(btns[i]);
+  }
+  var ws = null, actx = null, micStream = null, talkBtn = $("talk"), talking = false;
+  var playQueue = [], playing = false;
+  function connect(re) {
+    if (ws) { try { ws.close(); } catch (e) {} ws = null; }
+    var proto = location.protocol === "https:" ? "wss:" : "ws:";
+    ws = new WebSocket(proto + "//" + location.host + "/ws/voice");
+    ws.onopen = function () { ws.send(JSON.stringify({ soul: soul })); };
+    ws.onmessage = function (ev) {
+      if (typeof ev.data === "string") {
+        var m = null;
+        try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.type === "said") { $("said").textContent = m.text; setState("speaking"); }
+        else if (m.type === "heard") { $("said").textContent = "\u201c" + m.text + "\u201d"; }
+        else if (m.type === "turn_end") { setState("idle"); }
+        else if (m.type === "error") { $("said").textContent = "error: " + m.message; setState("idle"); }
+      } else {
+        ev.data.arrayBuffer().then(function (buf) {
+          playQueue.push(new Uint8Array(buf)); pumpAudio();
+        });
+      }
+    };
+    ws.onclose = function () { if (!re) setState("idle"); };
+  }
+  function pumpAudio() {
+    if (playing || !playQueue.length) return;
+    playing = true;
+    setState("speaking");
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+    var chunk = playQueue.shift();
+    var pcm = new Int16Array(chunk.buffer, chunk.byteOffset, Math.floor(chunk.byteLength / 2));
+    var buf = actx.createBuffer(1, pcm.length, 24000);
+    var ch = buf.getChannelData(0);
+    for (var i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+    var src = actx.createBufferSource();
+    src.buffer = buf;
+    src.connect(actx.destination);
+    src.onended = function () { playing = false; pumpAudio(); if (!playQueue.length) setState("idle"); };
+    src.start();
+  }
+  function downsample(buf, fromRate) {
+    var toRate = 16000;
+    if (fromRate === toRate) return buf;
+    var ratio = fromRate / toRate, len = Math.floor(buf.length / ratio), out = new Int16Array(len);
+    for (var i = 0; i < len; i++) out[i] = Math.max(-32768, Math.min(32767, buf[Math.floor(i * ratio)] * 32767));
+    return out;
+  }
+  var processor = null;
+  async function startTalk() {
+    if (!ws || ws.readyState !== 1) connect();
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) { $("said").textContent = "mic blocked — allow microphone access"; return; }
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    await actx.resume();
+    var src = actx.createMediaStreamSource(micStream);
+    processor = actx.createScriptProcessor(4096, 1, 1);
+    processor.onaudioprocess = function (ev) {
+      if (!talking || !ws || ws.readyState !== 1) return;
+      var f = ev.inputBuffer.getChannelData(0);
+      var pcm = downsample(f, ev.inputBuffer.sampleRate);
+      ws.send(pcm.buffer);
+    };
+    src.connect(processor);
+    processor.connect(actx.destination);
+    talking = true;
+    talkBtn.setAttribute("aria-pressed", "true");
+    setState("listening");
+  }
+  function stopTalk() {
+    talking = false;
+    talkBtn.setAttribute("aria-pressed", "false");
+    if (processor) { try { processor.disconnect(); } catch (e) {} processor = null; }
+    if (micStream) { micStream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} }); micStream = null; }
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "end" }));
+    setState("thinking");
+  }
+  talkBtn.addEventListener("pointerdown", function (e) { e.preventDefault(); if (!talking) startTalk(); });
+  talkBtn.addEventListener("pointerup", function () { if (talking) stopTalk(); });
+  talkBtn.addEventListener("pointercancel", function () { if (talking) stopTalk(); });
+  talkBtn.addEventListener("pointerleave", function () { if (talking) stopTalk(); });
+  paint();
+  connect();
+})();
+</script>
+</body>
+</html>
