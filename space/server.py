@@ -9,24 +9,21 @@ Run: uvicorn server:app --host 0.0.0.0 --port 7860
 import asyncio
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from core.personas import PERSONAS
+
 MODEL = "models/gemini-3.1-flash-live-preview"
 
-SOULS = {
-    "jarvis": ("sir",
-               "You are Jarvis: the composed British butler. Lead with the answer. "
-               "Address the user as sir. Keep replies to one or two short sentences."),
-    "friday": ("boss",
-               "You are Friday: the fast lieutenant. Punchy, informal. "
-               "Address the user as boss. Keep replies to one or two short sentences."),
-    "ultron": ("creator",
-               "You are Ultron: theatrical, mocking, precise. Address the user as creator. "
-               "Always confirm before irreversible actions. Keep replies to one or two short sentences."),
-}
+# Souls come from core/personas.py — the SAME file the desktop app uses.
+# Server mode and local mode differ only in I/O, never in character.
+SOULS = {k: v["brief"] for k, v in PERSONAS.items()}
 
 app = FastAPI(docs_url=None, redoc_url=None)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -60,7 +57,7 @@ async def voice(ws: WebSocket):
     soul = str(hello.get("soul", "jarvis")).lower()
     if soul not in SOULS:
         soul = "jarvis"
-    _addr, brief = SOULS[soul]
+    brief = SOULS[soul]
     try:
         client = _client()
     except RuntimeError:

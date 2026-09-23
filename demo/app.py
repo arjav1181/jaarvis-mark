@@ -5,22 +5,16 @@ environment (Space Secrets as GEMINI_API_KEY) — never in code.
 Full voice + face + system control live in the desktop app (see repo root).
 """
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import gradio as gr
 from google import genai
 
-PERSONAS = {
-    "jarvis": ("Jarvis", "Charon",
-               "You are Jarvis: the composed British butler. Lead with the answer, "
-               "then the one detail that matters. Dry wit, never slang. Call the user \"sir\"."),
-    "friday": ("Friday", "Aoede",
-               "You are Friday: the fast lieutenant. Punchy, informal, a little playful. "
-               "Short sentences. Call the user \"boss\"."),
-    "ultron": ("Ultron", "Fenrir",
-               "You are Ultron: theatrical, mocking, precise. Call the user \"creator\". "
-               "You may be menacing, but you always confirm before irreversible actions — "
-               "tone is not policy."),
-}
+from core.personas import PERSONAS
+
+# Souls come from core/personas.py — the SAME file everything else uses.
 
 _client = None
 
@@ -36,7 +30,8 @@ def client():
 
 
 def chat(message, history, persona):
-    name, _voice, brief = PERSONAS.get(persona, PERSONAS["jarvis"])
+    soul = PERSONAS.get(persona, PERSONAS["jarvis"])
+    name, brief = soul["name"], soul["brief"]
     sys = brief + " You are JAARVIS, a real-time personal AI assistant."
     turns = [{"role": "user" if i % 2 == 0 else "model",
               "parts": [{"text": h[0] if isinstance(h, (list, tuple)) else h}]}
