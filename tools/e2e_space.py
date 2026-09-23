@@ -93,10 +93,10 @@ def main():
                        token=tok)
         check("command accepted", code == 200)
         heard = ""
-        ws.settimeout(150)
+        ws.settimeout(400)
         try:
             t0 = time.time()
-            while time.time() - t0 < 140:
+            while time.time() - t0 < 390:
                 m = json.loads(ws.recv())
                 if m.get("type") == "log" and m.get("speaker") == "jarvis":
                     heard += m.get("text", "")
@@ -134,7 +134,7 @@ def main():
         seen = ""
         try:
             t0 = time.time()
-            while time.time() - t0 < 140:
+            while time.time() - t0 < 390:
                 m = json.loads(ws.recv())
                 if m.get("type") == "log" and m.get("speaker") == "jarvis":
                     seen += m.get("text", "")
