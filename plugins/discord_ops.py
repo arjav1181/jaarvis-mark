@@ -78,6 +78,7 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
 
 
 PLUGIN = {
+    "server": True,  # cloud API, body-independent
     "name": "discord_ops",
     "description": ("Discord by voice: read recent channel messages, post to a "
                     "channel. Trigger on 'discord', 'read the channel', 'post to "

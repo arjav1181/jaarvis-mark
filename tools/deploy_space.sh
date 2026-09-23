@@ -14,6 +14,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 cp "$ROOT/space/server.py" "$ROOT/space/requirements.txt" "$ROOT/space/README.md" "$WORK/"
 cp -r "$ROOT/space/static" "$ROOT/core" "$WORK/"
+mkdir -p "$WORK/memory"  # server-side store boots empty; memory shape identical
 cat > "$WORK/Dockerfile" <<'EOF'
 FROM python:3.11-slim
 WORKDIR /app

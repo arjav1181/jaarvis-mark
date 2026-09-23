@@ -46,6 +46,7 @@ class PluginRecord:
     settings: Optional[dict] = None   # optional PLUGIN_SETTINGS schema (config fields)
     behavior: Optional[str] = None    # None = the API's default (blocking)
     scheduling: Optional[str] = None  # None = the API's default (WHEN_IDLE)
+    server: bool = False              # True = runs in server mode too
 
 
 class PluginRegistry:
@@ -77,6 +78,19 @@ class PluginRegistry:
 
     def has(self, name: str) -> bool:
         return name in self._plugins
+
+    def server_declarations(self) -> list[dict]:
+        """Declarations for server mode: enabled plugins opting in via "server"."""
+        decls = []
+        for name, rec in self._plugins.items():
+            if not rec.server or not get_plugin_enabled(name):
+                continue
+            decl = {"name": rec.name, "description": rec.description,
+                    "parameters": rec.parameters}
+            if rec.behavior:
+                decl["behavior"] = rec.behavior
+            decls.append(decl)
+        return decls
 
     def scheduling(self, name: str) -> Optional[str]:
         """How this plugin's result should re-enter the conversation, if it said."""
@@ -189,7 +203,8 @@ def _validate(module, filename: str) -> PluginRecord:
     return PluginRecord(name=name, description=description.strip(), parameters=parameters,
                          run=run_fn, file=filename, valid=True, error="", settings=settings,
                          behavior=_opt_upper(plugin_meta.get("behavior"), _BEHAVIORS),
-                         scheduling=_opt_upper(plugin_meta.get("scheduling"), _SCHEDULING))
+                         scheduling=_opt_upper(plugin_meta.get("scheduling"), _SCHEDULING),
+                         server=bool(plugin_meta.get("server") is True))
 
 
 def _load_error(path: Path, plugins_dir: Path, exc: Exception) -> str:

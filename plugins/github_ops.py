@@ -49,6 +49,7 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
 
 
 PLUGIN = {
+    "server": True,  # same brain server-side
     "name": "github_ops",
     "description": ("GitHub by voice: list open issues, list pull requests, "
                     "check PR checks, file an issue. Trigger on 'github', "

@@ -1,15 +1,23 @@
-"""Jaarvis voice Space — brain on the server, voice in the browser.
+"""Jaarvis voice Space — the SAME brain as the desktop, different body.
 
-Browser captures mic PCM (16k mono) -> WS -> this server -> Gemini Live
--> spoken audio + transcript stream back. The Gemini key lives in Space
-Secrets (GEMINI_API_KEY) and never reaches the browser.
+Local mode and server mode import from core/ identically: same registries,
+same prompt assembly, same memory engine, same persona trio. The ONLY
+differences are architectural:
+  voice in   : browser mic PCM (here) vs local mic (desktop)
+  voice out  : streamed PCM to browser (here) vs speakers (desktop)
+  face       : web orb (here) vs holographic head (desktop)
+  tools      : server-safe subset (opt-in per tool) vs full local set
+  memory file: server-side store (here) vs local store (desktop)
 
-Run: uvicorn server:app --host 0.0.0.0 --port 7860
+The Gemini key lives in Space Secrets (GEMINI_API_KEY), never in code.
+Run: JAARVIS_MODE=server python launch.py  (or uvicorn server:app)
 """
 import asyncio
 import json
 import os
+import platform
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -17,16 +25,114 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from core.personas import PERSONAS
+from core import brain
+from core.action_loader import discover_actions
+from core.plugin_loader import discover_plugins
+from core.personas import valid_persona
+from memory import memory_manager
+from memory.memory_manager import (
+    load_memory, update_memory, search_memory, format_memory_for_prompt,
+)
+from core import undo as undo_stack
 
 MODEL = "models/gemini-3.1-flash-live-preview"
-
-# Souls come from core/personas.py — the SAME file the desktop app uses.
-# Server mode and local mode differ only in I/O, never in character.
-SOULS = {k: v["brief"] for k, v in PERSONAS.items()}
+ASST_NAME = "JAARVIS"
 
 app = FastAPI(docs_url=None, redoc_url=None)
 HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+
+_action_registry = discover_actions(
+    Path(os.path.join(ROOT, "actions")),
+    logger=lambda m: print("[actions]", m))
+_plugin_registry = discover_plugins(
+    Path(os.path.join(ROOT, "plugins")),
+    set(_action_registry.names()),
+    logger=lambda m: print("[plugins]", m))
+
+# Inline core tools, mirrored from the desktop executor (same names, same
+# shapes, same memory functions — only the UI/vision/camera halves stay local).
+SERVER_INLINE_TOOLS = [
+    {"name": "save_memory",
+     "description": "Save a fact about the user (category, key, value).",
+     "parameters": {"type": "OBJECT", "properties": {
+         "category": {"type": "STRING", "description": "notes, preferences, projects, people"},
+         "key": {"type": "STRING", "description": "short key"},
+         "value": {"type": "STRING", "description": "the fact"}}, "required": []}},
+    {"name": "recall_memory",
+     "description": "Look up saved facts by keyword.",
+     "parameters": {"type": "OBJECT", "properties": {
+         "query": {"type": "STRING", "description": "what to look up"}}, "required": []}},
+    {"name": "undo",
+     "description": "List or reverse the assistant's own recent changes.",
+     "parameters": {"type": "OBJECT", "properties": {
+         "action": {"type": "STRING", "description": "'list' or empty"}}, "required": []}},
+    {"name": "system_status",
+     "description": "Server body stats: CPU, RAM, disk, uptime.",
+     "parameters": {"type": "OBJECT", "properties": {}}},
+]
+
+
+def _server_decls():
+    decls = list(SERVER_INLINE_TOOLS)
+    decls += _action_registry.server_declarations()
+    decls += _plugin_registry.server_declarations()
+    return decls
+
+
+def _system_status() -> str:
+    try:
+        import psutil
+        cpu = psutil.cpu_percent(interval=0.5)
+        mem = psutil.virtual_memory()
+        import shutil as _sh
+        disk = _sh.disk_usage("/")
+        return (f"Server body: CPU {cpu}%, RAM {mem.percent}% used, "
+                f"disk {disk.free // (1024**3)}G free, sir.")
+    except Exception as e:
+        return f"Status unavailable, sir: {e}"
+
+
+def _execute_tool(name: str, args: dict) -> str:
+    """Same tools, same functions as local mode (no UI/vision halves)."""
+    args = args or {}
+    try:
+        if name == "save_memory":
+            if args.get("key") and args.get("value"):
+                update_memory({args.get("category", "notes"):
+                               {args.get("key"): {"value": args.get("value")}}})
+            return "ok"
+        if name == "recall_memory":
+            return search_memory(args.get("query", ""), limit=8)
+        if name == "undo":
+            if str(args.get("action", "")).lower().strip() == "list":
+                items = undo_stack.history()
+                return ("Things I can undo:\n" + "\n".join(items)) if items else \
+                    "Nothing to undo yet."
+            return undo_stack.undo_last()
+        if name == "system_status":
+            return _system_status()
+        if _action_registry.has(name):
+            return _action_registry.run(name, args, {}) or "Done."
+        if _plugin_registry.has(name):
+            return _plugin_registry.run(name, args) or "Done."
+        return f"Tool '{name}' is not available in server mode."
+    except Exception as e:
+        return f"Tool {name} failed: {e}"
+
+
+def _build_instruction(persona_key: str) -> tuple[str, list]:
+    decls = _server_decls()
+    mem = load_memory()
+    mem_str = format_memory_for_prompt(mem)
+    instruction = brain.assemble_system(
+        asst_name=ASST_NAME, user_name="", persona_key=persona_key,
+        memory_str=mem_str, declarations=decls,
+        platform=f"{platform.system()} {platform.release()} (server body)".strip(),
+        capabilities=brain.describe_tools(decls),
+        limits=brain.describe_limits(body="server", has_vision=False, has_mic=True),
+        body="server")
+    return instruction, decls
 
 
 @app.get("/", include_in_schema=False)
@@ -54,10 +160,7 @@ async def voice(ws: WebSocket):
     except Exception:
         await ws.close(code=4400)
         return
-    soul = str(hello.get("soul", "jarvis")).lower()
-    if soul not in SOULS:
-        soul = "jarvis"
-    brief = SOULS[soul]
+    persona = valid_persona(hello.get("soul", "jarvis"))
     try:
         client = _client()
     except RuntimeError:
@@ -65,6 +168,7 @@ async def voice(ws: WebSocket):
                                        "message": "server has no key"}))
         await ws.close(code=4401)
         return
+    instruction, decls = _build_instruction(persona)
 
     async def pump_in(session, queue):
         while True:
@@ -90,8 +194,7 @@ async def voice(ws: WebSocket):
             if chunk is None:
                 return
             await session.send_realtime_input(
-                audio={"mime_type": "audio/pcm;rate=16000",
-                       "data": chunk})
+                audio={"mime_type": "audio/pcm;rate=16000", "data": chunk})
 
     try:
         async with client.aio.live.connect(
@@ -99,12 +202,24 @@ async def voice(ws: WebSocket):
                 config={"response_modalities": ["AUDIO"],
                         "output_audio_transcription": {},
                         "input_audio_transcription": {},
-                        "system_instruction": brief}) as session:
+                        "system_instruction": instruction,
+                        "tools": [{"function_declarations": decls}]}) as session:
             queue: asyncio.Queue = asyncio.Queue()
             tin = asyncio.create_task(pump_in(session, queue))
             taud = asyncio.create_task(pump_audio(session, queue))
             try:
                 async for m in session.receive():
+                    if getattr(m, "tool_call", None):
+                        responses = []
+                        for fc in m.tool_call.function_calls:
+                            from google.genai import types
+                            out = _execute_tool(fc.name, dict(fc.args or {}))
+                            responses.append(types.FunctionResponse(
+                                id=fc.id, name=fc.name,
+                                response={"result": out}))
+                        await session.send_tool_response(
+                            function_responses=responses)
+                        continue
                     sc = m.server_content
                     if not sc:
                         continue

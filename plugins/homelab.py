@@ -59,6 +59,7 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
 
 
 PLUGIN = {
+    "server": True,  # acts on the server body (see limits)
     "name": "homelab",
     "description": ("Your homelab by voice: ping hosts, list/start/stop Docker "
                     "containers, report machine load and disk. Trigger on "

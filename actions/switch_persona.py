@@ -25,6 +25,7 @@ def switch_persona_action(parameters: dict, ctx: dict) -> str:
 
 
 TOOL = {
+    "server": True,  # same brain server-side
     "name": "switch_persona",
     "description": ("Switch the speaking soul between jarvis, friday and "
                     "ultron when the user asks (e.g. 'switch to Ultron', "

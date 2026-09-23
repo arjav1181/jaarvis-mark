@@ -65,6 +65,7 @@ class ActionRecord:
     error: str = ""
     behavior: Optional[str] = None     # None = the API's default (blocking)
     scheduling: Optional[str] = None   # None = the API's default (WHEN_IDLE)
+    server: bool = False              # True = runs in server mode too
 
 
 class ActionRegistry:
@@ -86,6 +87,19 @@ class ActionRegistry:
 
     def has(self, name: str) -> bool:
         return name in self._actions
+
+    def server_declarations(self) -> list[dict]:
+        """Declarations for server mode: only tools opting in via "server"."""
+        out = []
+        for rec in self._actions.values():
+            if not rec.server:
+                continue
+            decl = {"name": rec.name, "description": rec.description,
+                    "parameters": rec.parameters}
+            if rec.behavior:
+                decl["behavior"] = rec.behavior
+            out.append(decl)
+        return out
 
     def scheduling(self, name: str) -> Optional[str]:
         """How this action's result should re-enter the conversation, if it said."""
@@ -151,7 +165,8 @@ def _validate(module, filename: str) -> ActionRecord:
     return ActionRecord(name=name, description=description.strip(), parameters=parameters,
                         handler=handler, file=filename, valid=True, error="",
                         behavior=_opt_upper(tool.get("behavior"), _BEHAVIORS),
-                        scheduling=_opt_upper(tool.get("scheduling"), _SCHEDULING))
+                        scheduling=_opt_upper(tool.get("scheduling"), _SCHEDULING),
+                        server=bool(tool.get("server") is True))
 
 
 def discover_actions(actions_dir: Path, reserved_names: set[str] | None = None,
